@@ -168,11 +168,24 @@ export default function AddTransactionModal({ session, accounts, onClose, onSucc
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5
                          focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             >
-              {accounts.map(acc => (
-                <option key={acc.id} value={acc.id}>
-                  {acc.bank_name} — {acc.account_name}
-                </option>
-              ))}
+              {accounts.filter(a => a.account_type !== 'credit_card').length > 0 && (
+                <optgroup label="🏦 บัญชีธนาคาร">
+                  {accounts.filter(a => a.account_type !== 'credit_card').map(acc => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.bank_name} — {acc.account_name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {accounts.filter(a => a.account_type === 'credit_card').length > 0 && (
+                <optgroup label="💳 บัตรเครดิต">
+                  {accounts.filter(a => a.account_type === 'credit_card').map(acc => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.bank_name} — {acc.account_name}{acc.account_number ? ` •••• ${acc.account_number}` : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
 
