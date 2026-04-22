@@ -24,13 +24,11 @@ const CATEGORIES = {
 
 function findMatchingAccount(slipData, accounts) {
   if (!slipData) return { matched: null, warning: null }
-  // Guard: ensure accounts is an array
-  const accountsArray = Array.isArray(accounts) ? accounts : []
-  const slipAccountLast4 = (slipData.sender_account || '').replace(/\\D/g, '').slice(-4)
+  const slipAccountLast4 = (slipData.sender_account || '').replace(/\D/g, '').slice(-4)
   const slipBank = (slipData.bank_name || '').toLowerCase()
   if (!slipAccountLast4 && !slipBank) return { matched: null, warning: null }
-  for (const acc of accountsArray) {
-    const accLast4 = (acc.account_number || '').replace(/\\D/g, '').slice(-4)
+  for (const acc of accounts) {
+    const accLast4 = (acc.account_number || '').replace(/\D/g, '').slice(-4)
     const accBank = (acc.bank_name || '').toLowerCase()
     if (slipAccountLast4 && accLast4 && slipAccountLast4 === accLast4) {
       if (!slipBank || accBank.includes(slipBank) || slipBank.includes(accBank)) {
