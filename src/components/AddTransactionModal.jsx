@@ -50,10 +50,10 @@ function findMatchingAccount(slipData, accounts) {
   }
 }
 
-export default function AddTransactionModal({ session, accounts, onClose, onSuccess }) {
+export default function AddTransactionModal({ session, accounts = [], onClose, onSuccess }) {
   const [type, setType] = useState('expense')
   const [amount, setAmount] = useState('')
-  const [accountId, setAccountId] = useState(accounts[0]?.id || '')
+  const [accountId, setAccountId] = useState((Array.isArray(accounts) && accounts.length > 0) ? accounts[0]?.id : '')
   const [category, setCategory] = useState('')
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [note, setNote] = useState('')
@@ -73,7 +73,7 @@ export default function AddTransactionModal({ session, accounts, onClose, onSucc
       if (result.date) setDate(result.date)
       if (result.note) setNote(result.note)
       if (result.type) setType(result.type)
-      const { matched, warning } = findMatchingAccount(result, accounts)
+      const { matched, warning } = findMatchingAccount(result, Array.isArray(accounts) ? accounts : [])
       if (matched) {
         setAccountId(matched.id)
         setSlipWarning(`✅ ตรงกับบัญชี: ${matched.bank_name} — ${matched.account_name}`)
@@ -151,14 +151,14 @@ setLoading(false)
             <label className="block text-sm font-medium text-gray-700 mb-1">บัญชี <span className="text-red-500">*</span></label>
             <select value={accountId} onChange={(e) => setAccountId(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
-              {accounts.filter(a => a.account_type !== 'credit_card').length > 0 && (
+              {(Array.isArray(accounts) && accounts.filter(a => a.account_type !== 'credit_card').length > 0) && (
                 <optgroup label="🏦 บัญชีธนาคาร">
                   {accounts.filter(a => a.account_type !== 'credit_card').map(acc => (
                     <option key={acc.id} value={acc.id}>{acc.bank_name} — {acc.account_name}</option>
                   ))}
                 </optgroup>
               )}
-              {accounts.filter(a => a.account_type === 'credit_card').length > 0 && (
+              {(Array.isArray(accounts) && accounts.filter(a => a.account_type === 'credit_card').length > 0) && (
                 <optgroup label="💳 บัตรเครดิต">
                   {accounts.filter(a => a.account_type === 'credit_card').map(acc => (
                     <option key={acc.id} value={acc.id}>{acc.bank_name} — {acc.account_name}{acc.account_number ? ` •••• ${acc.account_number}` : ''}</option>
