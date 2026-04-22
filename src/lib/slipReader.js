@@ -62,7 +62,7 @@ function tryQRRead(file) {
           if (parsed.merchantName) noteParts.push(parsed.merchantName)
           if (parsed.promptPayId) noteParts.push('PromptPay: ' + parsed.promptPayId)
           if (parsed.reference) noteParts.push('Ref: ' + parsed.reference)
-          resolve({ amount: parsed.amount, date: today, note: noteParts.join(' | ') || 'QR Slip', type: 'expense', source: 'qr' })
+          resolve({ amount: parsed.amount, date: today, note: noteParts.join(' | ') || 'QR Slip', type: 'expense', source: 'qr', sender_account: parsed.promptPayId || null, bank_name: null, sender_name: null, receiver_name: parsed.merchantName || null, reference: parsed.reference || null })
         } catch (err) { console.error('QR read error:', err); resolve(null) }
       }
       img.onerror = () => resolve(null)
@@ -96,7 +96,7 @@ async function tryGeminiRead(file) {
       date: parsed.date || new Date().toISOString().split('T')[0],
       note: parsed.note || [parsed.sender_name && 'จาก ' + parsed.sender_name, parsed.receiver_name && 'ไป ' + parsed.receiver_name].filter(Boolean).join(' | ') || 'Gemini Slip',
       type: parsed.type || 'expense', source: 'gemini',
-      sender_name: parsed.sender_name, bank_name: parsed.bank_name, reference: parsed.reference
+      sender_name: parsed.sender_name, sender_account: parsed.sender_account, bank_name: parsed.bank_name, receiver_name: parsed.receiver_name, reference: parsed.reference
     }
   } catch (err) { console.error('Gemini read error:', err); return null }
 }
