@@ -63,15 +63,17 @@ function parseEMVCoQR(qrText) {
 
   const promptPay = extractPromptPay(data);
 
+  const pp = promptPay;
   return {
-    type: 'qr_emvco',
-    isDynamic,
+    type: 'expense',
     amount: amount ? parseFloat(amount) : null,
-    currency,
-    country,
+    date: new Date().toISOString().split('T')[0],
+    note: pp.promptPayId ? 'PromptPay: ' + pp.promptPayId : 'QR Slip',
+    sender_account: pp.promptPayId || null,
+    bank_name: null,
     reference: additionalData['05'] || additionalData['01'] || null,
-    promptPay,
-    raw: data,
+    source: 'qr',
+    _raw: { isDynamic, currency, country, promptPay: pp, data },
   };
 }
 
@@ -308,17 +310,18 @@ function parseThaiSlipText(text) {
   else if (/รับเงิน|Receive/i.test(fullText)) txType = 'receive';
 
   return {
-    type: 'ocr',
+    type: 'expense',
     amount,
     date,
-    time,
-    bank,
-    senderAccount,
-    receiverAccount,
-    receiverName,
+    note: receiverName || bank || 'OCR Slip',
+    sender_account: senderAccount,
+    bank_name: bank,
+    receiver_name: receiverName,
+    receiver_account: receiverAccount,
     reference,
     txType,
     rawText: fullText,
+    source: 'ocr',
   };
 }
 
@@ -372,7 +375,7 @@ async function tryOCRRead(imageSource) {
  * Layer 2: OCR text extraction (Tesseract.js) — fallback
  *
  * @param {HTMLCanvasElement|HTMLVideoElement|File|Blob|string} imageSource
- * @returns {Promise<{ layer: 'qr'|'ocr', data: object } | null>}
+ * @returns {Promise<object | null>}
  */
 export async function readSlip(imageSource) {
   // Layer 1: Try QR code
@@ -380,7 +383,7 @@ export async function readSlip(imageSource) {
   const qrResult = await tryQRRead(imageSource);
   if (qrResult) {
     console.log('[slipReader] QR read succeeded');
-    return { layer: 'qr', data: qrResult };
+    return { ...qrResult, _layer: 'qr' };
   }
   console.log('[slipReader] QR read failed or no EMVCo QR found');
 
@@ -389,7 +392,7 @@ export async function readSlip(imageSource) {
   const ocrResult = await tryOCRRead(imageSource);
   if (ocrResult) {
     console.log('[slipReader] OCR read succeeded');
-    return { layer: 'ocr', data: ocrResult };
+    return { ...ocrResult, _layer: 'ocr' };
   }
 
   console.warn('[slipReader] Both QR and OCR failed');
