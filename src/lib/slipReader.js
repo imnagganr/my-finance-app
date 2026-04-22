@@ -78,6 +78,7 @@ function parseEMVCoQR(qrText) {
 }
 
 // ─── Layer 1: QR Code Reading ────────────────────────────────────────
+// Version: 1.1.0 (Fixed: accounts undefined guard)
 
 async function tryQRRead(imageSource) {
   try {
