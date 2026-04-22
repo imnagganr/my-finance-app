@@ -144,6 +144,7 @@ function loadImageFromBlob(blob) {
 }
 
 // ─── Layer 2: Tesseract.js OCR Fallback ──────────────────────────────
+// Version: 1.0.2
 
 const BANK_PATTERNS = {
   'ttb': ['ttb', 'ทีทีบี', 'TTB'],
