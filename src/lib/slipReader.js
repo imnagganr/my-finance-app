@@ -89,7 +89,7 @@ async function tryGeminiRead(file) {
     const base64 = await fileToBase64(file)
     const prompt = 'วิเคราะห์รูปสลิป/ใบเสร็จทางการเงินนี้ แล้วตอบเป็น JSON เท่านั้น (ไม่ต้องมี markdown ครอบ):\n{"amount": <จำนวนเงินเป็นตัวเลข>, "date": "<YYYY-MM-DD แปลงจากพ.ศ.ถ้าจำเป็น>", "sender_name": "<ชื่อผู้ส่ง>", "sender_account": "<เลขบัญชี>", "receiver_name": "<ชื่อผู้รับ>", "receiver_account": "<เลขบัญชีผู้รับ>", "bank_name": "<ธนาคาร>", "reference": "<รหัสอ้างอิง>", "type": "<expense หรือ income>", "note": "<สรุปสั้นๆ>"}\nถ้าไม่พบข้อมูลบาง field ให้ใส่ null ห้ามเดา ถ้าเป็นพ.ศ.ให้ลบ 543'
     const result = await model.generateContent([prompt, { inlineData: { mimeType: file.type || 'image/jpeg', data: base64 } }])
-    const text = result.response.text().replace(/ '').trim()
+    const text = result.response.text().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
     const parsed = JSON.parse(text)
     return {
       amount: parsed.amount ? parseFloat(parsed.amount) : null,
