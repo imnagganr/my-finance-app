@@ -36,6 +36,19 @@ export default function Dashboard({ session }) {
   const totalIncome = transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
   const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
 
+  const handleDeleteAccount = async (accId) => {
+    const txCount = transactions.filter(t => t.account_id === accId).length
+    const msg = txCount > 0
+      ? `ลบบัญชีนี้จะลบรายการที่เกี่ยวข้อง ${txCount} รายการด้วย ยืนยัน?`
+      : 'ยืนยันการลบบัญชี?'
+    if (!window.confirm(msg)) return
+    if (txCount > 0) {
+      await supabase.from('transactions').delete().eq('account_id', accId)
+    }
+    await supabase.from('bank_accounts').delete().eq('id', accId)
+    fetchData()
+  }
+
   const formatMoney = (amount) =>
     new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(amount)
 
@@ -89,8 +102,13 @@ export default function Dashboard({ session }) {
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {bankAccounts.map(acc => (
-              <div key={acc.id} className="rounded-2xl p-4 text-white shadow-sm"
+              <div key={acc.id} className="rounded-2xl p-4 text-white shadow-sm relative"
                 style={{ backgroundColor: acc.color || '#3B82F6' }}>
+                <button
+                  onClick={() => handleDeleteAccount(acc.id)}
+                  className="absolute top-2 right-2 text-white/50 hover:text-white text-lg"
+                  title="ลบบัญชี"
+                >✕</button>
                 <p className="text-xs opacity-80 mb-1">{acc.bank_name}</p>
                 <p className="font-semibold text-sm mb-2">{acc.account_name}</p>
                 <p className="text-xl font-bold">{formatMoney(getAccBalance(acc))}</p>
@@ -122,6 +140,11 @@ export default function Dashboard({ session }) {
               return (
                 <div key={acc.id} className="rounded-2xl p-4 text-white shadow-sm relative overflow-hidden"
                   style={{ background: `linear-gradient(135deg, ${acc.color || '#1a1f71'}, #000)` }}>
+                  <button
+                    onClick={() => handleDeleteAccount(acc.id)}
+                    className="absolute top-2 right-8 text-white/50 hover:text-white text-lg z-10"
+                    title="ลบบัตรเครดิต"
+                  >✕</button>
                   <p className="text-xs opacity-70 mb-1">{acc.bank_name}</p>
                   <p className="font-semibold text-sm">
                     {acc.account_name}
