@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { readSlipQR } from '../lib/slipReader'
+import { readSlip } from '../lib/slipReader'
 
 const CATEGORIES = {
   expense: [
@@ -39,7 +39,7 @@ export default function AddTransactionModal({ session, accounts, onClose, onSucc
 
   setSlipLoading(true)
 
-  const result = await readSlipQR(file)
+  const result = await readSlip(file)
   if (result) {
     if (result.amount) setAmount(result.amount.toString())
     if (result.date) setDate(result.date)
@@ -114,7 +114,7 @@ export default function AddTransactionModal({ session, accounts, onClose, onSucc
 {/* อัพโหลดสลิป */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              📎 อัพโหลดสลิป (อ่าน QR อัตโนมัติ)
+              📎 อัพโหลดสลิป (QR + AI อ่านอัตโนมัติ)
             </label>
             <label className={`w-full flex items-center justify-center gap-2 
                               border-2 border-dashed border-gray-300 rounded-xl 
@@ -128,7 +128,7 @@ export default function AddTransactionModal({ session, accounts, onClose, onSucc
                 disabled={slipLoading}
               />
               {slipLoading ? (
-                <span className="text-sm text-blue-500">📷 กำลังอ่าน QR...</span>
+                <span className="text-sm text-blue-500">📷 กำลังอ่านสลิป...</span>
               ) : (
                 <span className="text-sm text-gray-500">แตะเพื่ออัพโหลดรูปสลิป</span>
               )}
