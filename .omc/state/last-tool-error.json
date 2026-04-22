@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"gh pr create --title \\\"Switch Gemini model to gemini-2.0-flash (free tier)\\\" --body \\\"$(cat <<'EOF'\\n## Summary\\n\\n- เปลี่ยน model จาก `gemini-2.5-flash` → `gemini-2.0-flash`\\n- `gemini-2....",
-  "error": "Exit code 127\n(eval):1: command not found: gh",
-  "timestamp": "2026-04-17T18:42:31.932Z",
-  "retry_count": 1
-}
