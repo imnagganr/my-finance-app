@@ -1,7 +1,7 @@
 import jsQR from 'jsqr'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyAx2MeLC6qXF6_HYJh9Yu78SCjDUivw0qs'
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY
 
 function parseEMVCo(data) {
   const result = {}
