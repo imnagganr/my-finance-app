@@ -166,29 +166,39 @@ function parseThaiSlipText(text) {
 
   // ── Amount ──
   let amount = null;
-  // Match "60.00", "1,250.50", amounts with THB prefix
-  const amountPatterns = [
-    /(?:จำนวน|Amount|ยอด)[^\d]*([\d,]+\.\d{2})/i,
-    /(?:THB|฿)\s*([\d,]+\.\d{2})/i,
-    /(?:฿)\s*([\d,]+(?:\.\d{2})?)/,
-    /([\d,]+\.\d{2})\s*(?:บาท|THB|฿)/i,
-    /(?:โอน|ส่ง)\s+(?:สำเร็จ|แล้ว)?\s*([\d,]+\.\d{2})/i,
-  ];
-  for (const pat of amountPatterns) {
-    const m = fullText.match(pat);
-    if (m) {
-      amount = parseFloat(m[1].replace(/,/g, ''));
-      break;
+
+  // Priority 1: amount on its own line (Thai slip format: standalone number after success line)
+  const standaloneMatch = fullText.match(/^([\d,]+\.\d{2})\s*$/m);
+  if (standaloneMatch) {
+    amount = parseFloat(standaloneMatch[1].replace(/,/g, ''));
+  }
+
+  // Priority 2: amount immediately before ค่าธรรมเนียม/fee line
+  if (!amount) {
+    const feeMatch = fullText.match(/([\d,]+\.\d{2})\s*\n[^\n]*(?:ค่าธรรมเนียม|fee|ค่าบริการ)/i);
+    if (feeMatch) amount = parseFloat(feeMatch[1].replace(/,/g, ''));
+  }
+
+  // Priority 3: keyword-based patterns
+  if (!amount) {
+    const amountPatterns = [
+      /(?:จำนวน|Amount|ยอด)[^\d]*([\d,]+\.\d{2})/i,
+      /(?:THB|฿)\s*([\d,]+\.\d{2})/i,
+      /([\d,]+\.\d{2})\s*(?:บาท|THB|฿)/i,
+      /(?:โอน|ส่ง)\s+(?:สำเร็จ|แล้ว)?\s*([\d,]+\.\d{2})/i,
+    ];
+    for (const pat of amountPatterns) {
+      const m = fullText.match(pat);
+      if (m) { amount = parseFloat(m[1].replace(/,/g, '')); break; }
     }
   }
-  // Fallback: largest non-zero decimal in the text (avoids 0.00 fee lines)
-  if (amount === null || amount === 0) {
-    const allAmounts = [...fullText.matchAll(/([\d,]+\.\d{2})/g)]
+
+  // Fallback: first non-zero X.XX decimal (not max, to avoid picking up reference numbers)
+  if (!amount) {
+    const allAmounts = [...fullText.matchAll(/(?:^|[\s\n])([\d,]{1,10}\.\d{2})(?:[\s\n]|$)/gm)]
       .map(m => parseFloat(m[1].replace(/,/g, '')))
-      .filter(n => n > 0);
-    if (allAmounts.length > 0) {
-      amount = Math.max(...allAmounts);
-    }
+      .filter(n => n > 0 && n < 1000000);
+    if (allAmounts.length > 0) amount = allAmounts[0];
   }
 
   // ── Date ──
@@ -366,6 +376,7 @@ async function tryOCRRead(imageSource) {
       return null;
     }
 
+    console.log('[slipReader] OCR text:', data.text);
     const parsed = parseThaiSlipText(data.text);
     return parsed;
   } catch (err) {
