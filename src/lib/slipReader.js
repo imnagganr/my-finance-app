@@ -78,6 +78,7 @@ function parseEMVCoQR(qrText) {
 }
 
 // ─── Layer 1: QR Code Reading ────────────────────────────────────────
+// Version: 1.1.1 (v1.0.1 - Cache Bypass v2)
 
 async function tryQRRead(imageSource) {
   try {
@@ -144,6 +145,7 @@ function loadImageFromBlob(blob) {
 }
 
 // ─── Layer 2: Tesseract.js OCR Fallback ──────────────────────────────
+// Version: 1.0.2
 
 const BANK_PATTERNS = {
   'ttb': ['ttb', 'ทีทีบี', 'TTB'],
