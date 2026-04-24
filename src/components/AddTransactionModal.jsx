@@ -70,7 +70,7 @@ export default function AddTransactionModal({ session, accounts, onClose, onSucc
       if (result.amount) setAmount(result.amount.toString())
       if (result.date) setDate(result.date)
       if (result.note) setNote(result.note)
-      if (result.type) setType(result.type)
+      if (result.type && CATEGORIES[result.type]) setType(result.type)
       const { matched, warning } = findMatchingAccount(result, accounts)
       if (matched) {
         setAccountId(matched.id)
