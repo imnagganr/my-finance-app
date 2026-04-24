@@ -127,7 +127,7 @@ async function tryGeminiRead(file) {
   }
   try {
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const base64 = await fileToBase64(file);
     const prompt = `วิเคราะห์รูปสลิปธนาคารไทยนี้ แล้วตอบเป็น JSON เท่านั้น ห้ามมี markdown หรือ code block:
 {"amount": <จำนวนเงินเป็นตัวเลข ไม่ใส่ comma>, "date": "<YYYY-MM-DD ถ้าเป็นปีพ.ศ.ให้ลบ 543>", "note": "<บันทึกช่วยจำจากสลิป หรือชื่อร้าน/ผู้รับ>", "bank_name": "<ชื่อธนาคาร>", "type": "expense"}
