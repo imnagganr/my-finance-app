@@ -1,5 +1,7 @@
 import jsQR from 'jsqr';
-import Tesseract from 'tesseract.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 // ─── EMVCo QR Parsing (Layer 1) ─────────────────────────────────────
 
@@ -17,415 +19,164 @@ function parseSubTLV(data) {
   return result;
 }
 
-function extractPromptPay(qrData) {
-  // Tag 29 or 30 = merchant account info (PromptPay)
-  const tag29 = qrData['29'] || qrData['30'];
-  if (!tag29) return null;
-
-  const sub = parseSubTLV(tag29);
-  // AID 00 = PromptPay proxy type
-  const aid = sub['00'] || '';
-  // Tag 01 = proxy value (phone or national ID)
-  const proxyValue = sub['01'] || '';
-
-  return { aid, proxyValue };
+function extractPromptPay(merchantInfo) {
+  const sub = parseSubTLV(merchantInfo);
+  const mobile = sub['03'] || '';
+  const nationalId = sub['02'] || '';
+  let formatted = mobile;
+  if (mobile.startsWith('0066')) formatted = '0' + mobile.substring(4);
+  return { mobile: formatted || null, nationalId: nationalId || null, promptPayId: formatted || nationalId || null };
 }
 
-function parseEMVCoQR(qrText) {
-  const data = {};
-  let pos = 0;
-  while (pos + 4 <= qrText.length) {
-    const tag = qrText.substring(pos, pos + 2);
-    const len = parseInt(qrText.substring(pos + 2, pos + 4), 10);
-    if (isNaN(len) || pos + 4 + len > qrText.length) break;
-    const value = qrText.substring(pos + 4, pos + 4 + len);
-    data[tag] = value;
-    pos += 4 + len;
+export function parseEMVCoQR(qrString) {
+  const fields = parseSubTLV(qrString);
+  if (fields['00'] !== '01') return null;
+
+  let isPromptPay = false;
+  let promptPayInfo = {};
+  if (fields['30']) {
+    const sub = parseSubTLV(fields['30']);
+    if (sub['00'] === 'A000000677010111') { isPromptPay = true; promptPayInfo = extractPromptPay(fields['30']); }
+  }
+  if (!isPromptPay && fields['29']) {
+    const sub = parseSubTLV(fields['29']);
+    if (sub['00'] === 'A000000677010111') { isPromptPay = true; promptPayInfo = extractPromptPay(fields['29']); }
   }
 
-  // Tag 00 = payload format indicator
-  if (data['00'] !== '01') return null;
+  const amount = fields['54'] ? parseFloat(fields['54']) : null;
+  let reference = null;
+  if (fields['62']) { const sub62 = parseSubTLV(fields['62']); reference = sub62['05'] || sub62['01'] || null; }
 
-  // Tag 01 = point of initiation (11=static, 12=dynamic)
-  const isDynamic = data['01'] === '12';
-
-  // Tag 54 = transaction amount
-  const amount = data['54'] || null;
-
-  // Tag 53 = currency (764 = THB)
-  const currency = data['53'] || null;
-
-  // Tag 58 = country code
-  const country = data['58'] || null;
-
-  // Tag 62 = additional data (bill payment ref, etc.)
-  const additionalData = data['62'] ? parseSubTLV(data['62']) : {};
-
-  const promptPay = extractPromptPay(data);
-
-  const pp = promptPay;
   return {
-    type: 'expense',
-    amount: amount ? parseFloat(amount) : null,
-    date: new Date().toISOString().split('T')[0],
-    note: pp.promptPayId ? 'PromptPay: ' + pp.promptPayId : 'QR Slip',
-    sender_account: pp.promptPayId || null,
-    bank_name: null,
-    reference: additionalData['05'] || additionalData['01'] || null,
-    source: 'qr',
-    _raw: { isDynamic, currency, country, promptPay: pp, data },
+    isPromptPay, amount,
+    country: fields['58'] || null,
+    merchantName: fields['59'] || null,
+    reference,
+    ...promptPayInfo,
   };
 }
 
 // ─── Layer 1: QR Code Reading ────────────────────────────────────────
-// Version: 1.1.1 (v1.0.1 - Cache Bypass v2)
-
-async function tryQRRead(imageSource) {
-  try {
-    let imageData;
-    let width;
-    let height;
-
-    if (imageSource instanceof HTMLCanvasElement) {
-      const ctx = imageSource.getContext('2d');
-      width = imageSource.width;
-      height = imageSource.height;
-      imageData = ctx.getImageData(0, 0, width, height);
-    } else if (imageSource instanceof HTMLVideoElement) {
-      const canvas = document.createElement('canvas');
-      canvas.width = imageSource.videoWidth;
-      canvas.height = imageSource.videoHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(imageSource, 0, 0);
-      width = canvas.width;
-      height = canvas.height;
-      imageData = ctx.getImageData(0, 0, width, height);
-    } else {
-      // Assume it's a File/Blob → load into Image
-      const img = await loadImageFromBlob(imageSource);
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      width = canvas.width;
-      height = canvas.height;
-      imageData = ctx.getImageData(0, 0, width, height);
-    }
-
-    const code = jsQR(imageData.data, width, height);
-    if (code && code.data) {
-      const parsed = parseEMVCoQR(code.data);
-      if (parsed) {
-        return { ...parsed, rawQR: code.data };
-      }
-      // QR found but not EMVCo format — return raw text
-      return { type: 'qr_raw', text: code.data };
-    }
-  } catch (err) {
-    console.warn('[slipReader] QR read failed:', err.message);
-  }
-  return null;
-}
 
 function loadImageFromBlob(blob) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob);
     const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(img);
-    };
-    img.onerror = (e) => {
-      URL.revokeObjectURL(url);
-      reject(e);
-    };
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
     img.src = url;
   });
 }
 
-// ─── Layer 2: Tesseract.js OCR Fallback ──────────────────────────────
-// Version: 1.0.2
-
-const BANK_PATTERNS = {
-  'ttb': ['ttb', 'ทีทีบี', 'TTB'],
-  'scb': ['SCB', 'ไทยพาณิชย์', 'SCB ไทยพาณิชย์'],
-  'ktb': ['KTB', 'กรุงไทย'],
-  'bbl': ['กรุงเทพ', 'BBL', 'Bangkok Bank'],
-  'kbank': ['กสิกร', 'KBANK', 'KBank'],
-  'bay': ['กรุงศรี', 'BAY', 'Krungsri'],
-  'gsb': ['ออมสิน', 'GSB'],
-  'BAAC': ['BAAC', 'ธ.ก.ส.', 'ธกส'],
-};
-
-function parseThaiSlipText(text) {
-  if (!text) return null;
-
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const fullText = text;
-
-  // ── Amount ──
-  let amount = null;
-
-  // Priority 1: amount on its own line (Thai slip format: standalone number after success line)
-  const standaloneMatch = fullText.match(/^([\d,]+\.\d{2})\s*$/m);
-  if (standaloneMatch) {
-    amount = parseFloat(standaloneMatch[1].replace(/,/g, ''));
-  }
-
-  // Priority 2: amount immediately before ค่าธรรมเนียม/fee line
-  if (!amount) {
-    const feeMatch = fullText.match(/([\d,]+\.\d{2})\s*\n[^\n]*(?:ค่าธรรมเนียม|fee|ค่าบริการ)/i);
-    if (feeMatch) amount = parseFloat(feeMatch[1].replace(/,/g, ''));
-  }
-
-  // Priority 3: keyword-based patterns
-  if (!amount) {
-    const amountPatterns = [
-      /(?:จำนวน|Amount|ยอด)[^\d]*([\d,]+\.\d{2})/i,
-      /(?:THB|฿)\s*([\d,]+\.\d{2})/i,
-      /([\d,]+\.\d{2})\s*(?:บาท|THB|฿)/i,
-      /(?:โอน|ส่ง)\s+(?:สำเร็จ|แล้ว)?\s*([\d,]+\.\d{2})/i,
-    ];
-    for (const pat of amountPatterns) {
-      const m = fullText.match(pat);
-      if (m) { amount = parseFloat(m[1].replace(/,/g, '')); break; }
-    }
-  }
-
-  // Fallback: first non-zero X.XX decimal (not max, to avoid picking up reference numbers)
-  if (!amount) {
-    const allAmounts = [...fullText.matchAll(/(?:^|[\s\n])([\d,]{1,10}\.\d{2})(?:[\s\n]|$)/gm)]
-      .map(m => parseFloat(m[1].replace(/,/g, '')))
-      .filter(n => n > 0 && n < 1000000);
-    if (allAmounts.length > 0) amount = allAmounts[0];
-  }
-
-  // ── Date ──
-  let date = null;
-  // Thai month abbreviations
-  const thaiMonths = {
-    'ม.ค.': '01', 'มค': '01', 'ก.พ.': '02', 'กพ': '02',
-    'มี.ค.': '03', 'มีค': '03', 'เม.ย.': '04', 'เมย': '04',
-    'พ.ค.': '05', 'พค': '05', 'มิ.ย.': '06', 'มิย': '06',
-    'ก.ค.': '07', 'กค': '07', 'ส.ค.': '08', 'สค': '08',
-    'ก.ย.': '09', 'กย': '09', 'ต.ค.': '10', 'ตค': '10',
-    'พ.ย.': '11', 'พย': '11', 'ธ.ค.': '12', 'ธค': '12',
-    'มกราคม': '01', 'กุมภาพันธ์': '02', 'มีนาคม': '03',
-    'เมษายน': '04', 'พฤษภาคม': '05', 'มิถุนายน': '06',
-    'กรกฎาคม': '07', 'สิงหาคม': '08', 'กันยายน': '09',
-    'ตุลาคม': '10', 'พฤศจิกายน': '11', 'ธันวาคม': '12',
-  };
-
-  // "21 เม.ย. 69" or "21 เมษายน 2569" — dots optional for OCR tolerance
-  const thaiDatePattern = /(\d{1,2})\s*(ม\.?ค\.?|ก\.?พ\.?|มี\.?ค\.?|เม\.?ย\.?|พ\.?ค\.?|มิ\.?ย\.?|ก\.?ค\.?|ส\.?ค\.?|ก\.?ย\.?|ต\.?ค\.?|พ\.?ย\.?|ธ\.?ค\.?|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)\s*(\d{2,4})/;
-  const thaiMatch = fullText.match(thaiDatePattern);
-  if (thaiMatch) {
-    const day = thaiMatch[1].padStart(2, '0');
-    const rawMonth = thaiMatch[2].replace(/\./g, '');
-    const month = thaiMonths[thaiMatch[2]] || thaiMonths[rawMonth] || '01';
-    let year = thaiMatch[3];
-    // Convert Thai Buddhist year to CE
-    if (year.length === 2) year = (parseInt(year) + 2500).toString();
-    if (parseInt(year) > 2400) year = (parseInt(year) - 543).toString();
-    date = `${year}-${month}-${day}`;
-  }
-
-  // "21/04/2569" or "21-04-2026"
-  if (!date) {
-    const dmyPattern = /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/;
-    const dmyMatch = fullText.match(dmyPattern);
-    if (dmyMatch) {
-      let day = dmyMatch[1].padStart(2, '0');
-      let month = dmyMatch[2].padStart(2, '0');
-      let year = parseInt(dmyMatch[3]);
-      if (year > 2400) year -= 543; // Thai year
-      date = `${year}-${month}-${day}`;
-    }
-  }
-
-  // ── Time ──
-  let time = null;
-  const timeMatch = fullText.match(/(\d{1,2}:\d{2}(?::\d{2})?)/);
-  if (timeMatch) time = timeMatch[1];
-
-  // ── Account numbers ──
-  let senderAccount = null;
-  let receiverAccount = null;
-
-  // "XXX-X-XX851-1" or "123-4-56789-0" patterns
-  const dashAccountPattern = /(\d{3}-\d-\d{2}\d+-\d)/g;
-  const dashAccounts = [...fullText.matchAll(dashAccountPattern)].map(m => m[1]);
-
-  // Generic account: 10-12 digit numbers that look like accounts
-  const digitAccountPattern = /(\d{10,12})/g;
-  const digitAccounts = [...fullText.matchAll(digitAccountPattern)].map(m => m[1]);
-
-  // Context-based assignment
-  const fromIdx = fullText.search(/(?:จาก|From|ต้นทาง|บัญชีต้นทาง)/i);
-  const toIdx = fullText.search(/(?:ถึง|To|ปลายทาง|บัญชีปลายทาง|ผู้รับ)/i);
-
-  if (dashAccounts.length >= 2) {
-    if (fromIdx > -1 && toIdx > -1) {
-      // Find which account is closer to "from" vs "to"
-      const fromAccount = dashAccounts.find(a => fullText.indexOf(a) > fromIdx && fullText.indexOf(a) < (toIdx > fromIdx ? toIdx : fromIdx + 50));
-      const toAccount = dashAccounts.find(a => fullText.indexOf(a) > toIdx);
-      senderAccount = fromAccount || dashAccounts[0];
-      receiverAccount = toAccount || dashAccounts[1];
-    } else {
-      senderAccount = dashAccounts[0];
-      receiverAccount = dashAccounts[1];
-    }
-  } else if (dashAccounts.length === 1) {
-    receiverAccount = dashAccounts[0];
-  }
-
-  // ── Bank name ──
-  let bank = null;
-  for (const [bankKey, patterns] of Object.entries(BANK_PATTERNS)) {
-    for (const p of patterns) {
-      if (fullText.toLowerCase().includes(p.toLowerCase())) {
-        bank = bankKey;
-        break;
-      }
-    }
-    if (bank) break;
-  }
-
-  // ── Memo / บันทึกช่วยจำ ──
-  let memo = null;
-  const memoMatch = fullText.match(/(?:บันทึกช่วยจํา|บันทึกช่วยจำ|หมายเหตุ|Memo|Note)\s+([^\n]{1,80})/i);
-  if (memoMatch) memo = memoMatch[1].trim();
-
-  // ── Receiver name ──
-  let receiverName = null;
-  const receiverPatterns = [
-    /(?:ถึง|To|ผู้รับ|ชื่อบัญชี|Account Name)\s*[:\s]*([^\n]+)/i,
-    /(?:นาย|นาง|นางสาว|Mr\.|Mrs\.|Ms\.)\s*([^\n]{2,50})/i,
-  ];
-  for (const pat of receiverPatterns) {
-    const m = fullText.match(pat);
-    if (m) {
-      receiverName = m[1].trim();
-      break;
-    }
-  }
-
-  // ── Reference number ──
-  let reference = null;
-  const refPatterns = [
-    /(?:หมายเลขอ้างอิง|Reference|Ref\.?|เลขที่อ้างอิง|Transaction ID|TXN)\s*[:\s]*(\d{6,})/i,
-    /(?:รหัสอ้างอิง)\s*[:\s]*([A-Za-z0-9]{6,})/i,
-  ];
-  for (const pat of refPatterns) {
-    const m = fullText.match(pat);
-    if (m) {
-      reference = m[1];
-      break;
-    }
-  }
-
-  // ── Transaction type ──
-  let txType = null;
-  if (/โอนเงิน/i.test(fullText)) txType = 'transfer';
-  else if (/ชำระเงิน|จ่ายเงิน|Pay/i.test(fullText)) txType = 'payment';
-  else if (/รับเงิน|Receive/i.test(fullText)) txType = 'receive';
-
-  return {
-    type: 'expense',
-    amount,
-    date,
-    note: memo || receiverName || bank || 'OCR Slip',
-    sender_account: senderAccount,
-    bank_name: bank,
-    receiver_name: receiverName,
-    receiver_account: receiverAccount,
-    reference,
-    txType,
-    rawText: fullText,
-    source: 'ocr',
-  };
-}
-
-async function tryOCRRead(imageSource) {
+async function tryQRRead(imageSource) {
   try {
-    // Convert imageSource to something Tesseract can process
-    let image;
-    if (imageSource instanceof HTMLCanvasElement) {
-      image = imageSource.toDataURL('image/png');
-    } else if (imageSource instanceof HTMLVideoElement) {
-      const canvas = document.createElement('canvas');
-      canvas.width = imageSource.videoWidth;
-      canvas.height = imageSource.videoHeight;
-      canvas.getContext('2d').drawImage(imageSource, 0, 0);
-      image = canvas.toDataURL('image/png');
-    } else if (imageSource instanceof Blob || imageSource instanceof File) {
-      image = imageSource;
-    } else if (typeof imageSource === 'string') {
-      image = imageSource; // URL or data URI
-    } else {
-      image = imageSource;
+    const img = await loadImageFromBlob(imageSource);
+    const canvas = document.createElement('canvas');
+    const maxDim = 1200;
+    let w = img.width, h = img.height;
+    if (w > maxDim || h > maxDim) {
+      const scale = maxDim / Math.max(w, h);
+      w = Math.round(w * scale); h = Math.round(h * scale);
     }
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
 
-    const result = await Tesseract.recognize(image, 'tha+eng', {
-      logger: (m) => {
-        if (m.status === 'recognizing text') {
-          console.log(`[slipReader] OCR progress: ${(m.progress * 100).toFixed(0)}%`);
-        }
-      },
-    });
+    let code = jsQR(imageData.data, w, h, { inversionAttempts: 'attemptBoth' });
+    if (!code) code = jsQR(imageData.data, w, h, { inversionAttempts: 'dontInvert' });
+    if (!code) return null;
 
-    const { data } = result;
-    if (!data || !data.text || data.text.trim().length < 5) {
-      console.warn('[slipReader] OCR returned too little text');
-      return null;
-    }
+    const parsed = parseEMVCoQR(code.data);
+    if (!parsed) return { type: 'qr_raw', text: code.data };
 
-    console.log('[slipReader] OCR text:', data.text);
-    const parsed = parseThaiSlipText(data.text);
-    return parsed;
+    const today = new Date().toISOString().split('T')[0];
+    const noteParts = [];
+    if (parsed.merchantName) noteParts.push(parsed.merchantName);
+    if (parsed.promptPayId) noteParts.push('PromptPay: ' + parsed.promptPayId);
+    if (parsed.reference) noteParts.push('Ref: ' + parsed.reference);
+
+    return {
+      type: 'expense',
+      amount: parsed.amount,
+      date: today,
+      note: noteParts.join(' | ') || 'QR Slip',
+      source: 'qr',
+    };
   } catch (err) {
-    console.error('[slipReader] OCR failed:', err.message);
+    console.warn('[slipReader] QR read failed:', err.message);
     return null;
   }
 }
 
-// ─── Main Entry Point: 2-Layer Slip Reader ───────────────────────────
+// ─── Layer 2: Gemini Vision ───────────────────────────────────────────
 
-/**
- * Read a Thai bank slip image.
- * Layer 1: QR code scan (jsQR + EMVCo parsing)
- * Layer 2: OCR text extraction (Tesseract.js) — fallback
- *
- * @param {HTMLCanvasElement|HTMLVideoElement|File|Blob|string} imageSource
- * @returns {Promise<object | null>}
- */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function tryGeminiRead(file) {
+  if (!GEMINI_API_KEY) {
+    console.warn('[slipReader] No Gemini API key');
+    return null;
+  }
+  try {
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const base64 = await fileToBase64(file);
+    const prompt = `วิเคราะห์รูปสลิปธนาคารไทยนี้ แล้วตอบเป็น JSON เท่านั้น ห้ามมี markdown หรือ code block:
+{"amount": <จำนวนเงินเป็นตัวเลข ไม่ใส่ comma>, "date": "<YYYY-MM-DD ถ้าเป็นปีพ.ศ.ให้ลบ 543>", "note": "<บันทึกช่วยจำจากสลิป หรือชื่อร้าน/ผู้รับ>", "bank_name": "<ชื่อธนาคาร>", "type": "expense"}
+ถ้าไม่พบข้อมูลใส่ null`;
+
+    const result = await model.generateContent([
+      prompt,
+      { inlineData: { mimeType: file.type || 'image/jpeg', data: base64 } },
+    ]);
+
+    const text = result.response.text().replace(/```json|```/g, '').trim();
+    console.log('[slipReader] Gemini raw:', text);
+    const parsed = JSON.parse(text);
+
+    return {
+      type: parsed.type || 'expense',
+      amount: parsed.amount ? parseFloat(parsed.amount) : null,
+      date: parsed.date || null,
+      note: parsed.note || parsed.bank_name || 'Gemini Slip',
+      bank_name: parsed.bank_name || null,
+      source: 'gemini',
+    };
+  } catch (err) {
+    console.error('[slipReader] Gemini read error:', err.message);
+    return null;
+  }
+}
+
+// ─── Main Entry Point ─────────────────────────────────────────────────
+
 export async function readSlip(imageSource) {
-  // Layer 1: Try QR code
   console.log('[slipReader] Layer 1: Attempting QR read...');
   const qrResult = await tryQRRead(imageSource);
-  if (qrResult && qrResult.type !== 'qr_raw') {
-    console.log('[slipReader] QR read succeeded (EMVCo)');
+  if (qrResult && qrResult.type !== 'qr_raw' && qrResult.amount) {
+    console.log('[slipReader] QR read succeeded (EMVCo with amount)');
     return { ...qrResult, _layer: 'qr' };
   }
-  if (qrResult) {
-    console.log('[slipReader] QR found but not EMVCo — falling through to OCR');
-  } else {
-    console.log('[slipReader] QR read failed or no QR found');
+  if (qrResult) console.log('[slipReader] QR found but no amount — falling through to Gemini');
+  else console.log('[slipReader] No QR found — trying Gemini');
+
+  console.log('[slipReader] Layer 2: Attempting Gemini read...');
+  const geminiResult = await tryGeminiRead(imageSource);
+  if (geminiResult) {
+    console.log('[slipReader] Gemini read succeeded');
+    return { ...geminiResult, _layer: 'gemini' };
   }
 
-  // Layer 2: OCR fallback
-  console.log('[slipReader] Layer 2: Attempting OCR read...');
-  const ocrResult = await tryOCRRead(imageSource);
-  if (ocrResult) {
-    console.log('[slipReader] OCR read succeeded');
-    return { ...ocrResult, _layer: 'ocr' };
-  }
-
-  console.warn('[slipReader] Both QR and OCR failed');
+  console.warn('[slipReader] Both layers failed');
   return null;
 }
 
-// ─── Exports ─────────────────────────────────────────────────────────
-
-export { parseEMVCoQR, parseThaiSlipText, tryQRRead, tryOCRRead };
+export { parseEMVCoQR as default };
