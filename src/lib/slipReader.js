@@ -1,6 +1,4 @@
 import jsQR from 'jsqr';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 // ─── EMVCo QR Parsing (Layer 1) ─────────────────────────────────────
@@ -126,22 +124,37 @@ async function tryGeminiRead(file) {
     return null;
   }
   try {
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }, { apiVersion: 'v1' });
     const base64 = await fileToBase64(file);
     const prompt = `วิเคราะห์รูปสลิปธนาคารไทยนี้ แล้วตอบเป็น JSON เท่านั้น ห้ามมี markdown หรือ code block:
 {"amount": <จำนวนเงินเป็นตัวเลข ไม่ใส่ comma>, "date": "<YYYY-MM-DD ถ้าเป็นปีพ.ศ.ให้ลบ 543>", "note": "<บันทึกช่วยจำจากสลิป หรือชื่อร้าน/ผู้รับ>", "bank_name": "<ชื่อธนาคาร>", "type": "expense"}
 ถ้าไม่พบข้อมูลใส่ null`;
 
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { mimeType: file.type || 'image/jpeg', data: base64 } },
-    ]);
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { text: prompt },
+            { inline_data: { mime_type: file.type || 'image/jpeg', data: base64 } },
+          ]}],
+        }),
+      }
+    );
 
-    const text = result.response.text().replace(/```json|```/g, '').trim();
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('[slipReader] Gemini HTTP error:', res.status, err);
+      return null;
+    }
+
+    const json = await res.json();
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.replace(/```json|```/g, '').trim();
     console.log('[slipReader] Gemini raw:', text);
-    const parsed = JSON.parse(text);
+    if (!text) return null;
 
+    const parsed = JSON.parse(text);
     return {
       type: parsed.type || 'expense',
       amount: parsed.amount ? parseFloat(parsed.amount) : null,
