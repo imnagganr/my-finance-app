@@ -388,11 +388,15 @@ export async function readSlip(imageSource) {
   // Layer 1: Try QR code
   console.log('[slipReader] Layer 1: Attempting QR read...');
   const qrResult = await tryQRRead(imageSource);
-  if (qrResult) {
-    console.log('[slipReader] QR read succeeded');
+  if (qrResult && qrResult.type !== 'qr_raw') {
+    console.log('[slipReader] QR read succeeded (EMVCo)');
     return { ...qrResult, _layer: 'qr' };
   }
-  console.log('[slipReader] QR read failed or no EMVCo QR found');
+  if (qrResult) {
+    console.log('[slipReader] QR found but not EMVCo — falling through to OCR');
+  } else {
+    console.log('[slipReader] QR read failed or no QR found');
+  }
 
   // Layer 2: OCR fallback
   console.log('[slipReader] Layer 2: Attempting OCR read...');
