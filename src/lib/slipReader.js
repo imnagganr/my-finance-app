@@ -168,12 +168,11 @@ function parseThaiSlipText(text) {
   let amount = null;
   // Match "60.00", "1,250.50", amounts with THB prefix
   const amountPatterns = [
-    /(?:จำนวน|Amount|ยอด|จ่าย|โอน)[^\d]*([\d,]+\.\d{2})/i,
+    /(?:จำนวน|Amount|ยอด)[^\d]*([\d,]+\.\d{2})/i,
     /(?:THB|฿)\s*([\d,]+\.\d{2})/i,
     /(?:฿)\s*([\d,]+(?:\.\d{2})?)/,
     /([\d,]+\.\d{2})\s*(?:บาท|THB|฿)/i,
-    // Standalone decimal near common keywords
-    /(?:โอน|ส่ง|จ่าย)\s+(?:สำเร็จ|แล้ว)?\s*([\d,]+\.\d{2})/i,
+    /(?:โอน|ส่ง)\s+(?:สำเร็จ|แล้ว)?\s*([\d,]+\.\d{2})/i,
   ];
   for (const pat of amountPatterns) {
     const m = fullText.match(pat);
@@ -182,11 +181,13 @@ function parseThaiSlipText(text) {
       break;
     }
   }
-  // Fallback: last standalone decimal number in the text
-  if (amount === null) {
-    const allAmounts = [...fullText.matchAll(/(?:^|\s)([\d,]+\.\d{2})(?:\s|$)/g)];
+  // Fallback: largest non-zero decimal in the text (avoids 0.00 fee lines)
+  if (amount === null || amount === 0) {
+    const allAmounts = [...fullText.matchAll(/([\d,]+\.\d{2})/g)]
+      .map(m => parseFloat(m[1].replace(/,/g, '')))
+      .filter(n => n > 0);
     if (allAmounts.length > 0) {
-      amount = parseFloat(allAmounts[allAmounts.length - 1][1].replace(/,/g, ''));
+      amount = Math.max(...allAmounts);
     }
   }
 
@@ -194,21 +195,25 @@ function parseThaiSlipText(text) {
   let date = null;
   // Thai month abbreviations
   const thaiMonths = {
-    'ม.ค.': '01', 'ก.พ.': '02', 'มี.ค.': '03', 'เม.ย.': '04',
-    'พ.ค.': '05', 'มิ.ย.': '06', 'ก.ค.': '07', 'ส.ค.': '08',
-    'ก.ย.': '09', 'ต.ค.': '10', 'พ.ย.': '11', 'ธ.ค.': '12',
+    'ม.ค.': '01', 'มค': '01', 'ก.พ.': '02', 'กพ': '02',
+    'มี.ค.': '03', 'มีค': '03', 'เม.ย.': '04', 'เมย': '04',
+    'พ.ค.': '05', 'พค': '05', 'มิ.ย.': '06', 'มิย': '06',
+    'ก.ค.': '07', 'กค': '07', 'ส.ค.': '08', 'สค': '08',
+    'ก.ย.': '09', 'กย': '09', 'ต.ค.': '10', 'ตค': '10',
+    'พ.ย.': '11', 'พย': '11', 'ธ.ค.': '12', 'ธค': '12',
     'มกราคม': '01', 'กุมภาพันธ์': '02', 'มีนาคม': '03',
     'เมษายน': '04', 'พฤษภาคม': '05', 'มิถุนายน': '06',
     'กรกฎาคม': '07', 'สิงหาคม': '08', 'กันยายน': '09',
     'ตุลาคม': '10', 'พฤศจิกายน': '11', 'ธันวาคม': '12',
   };
 
-  // "21 เม.ย. 69" or "21 เมษายน 2569"
-  const thaiDatePattern = /(\d{1,2})\s+(ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)\s+(\d{2,4})/;
+  // "21 เม.ย. 69" or "21 เมษายน 2569" — dots optional for OCR tolerance
+  const thaiDatePattern = /(\d{1,2})\s+(ม\.?ค\.?|ก\.?พ\.?|มี\.?ค\.?|เม\.?ย\.?|พ\.?ค\.?|มิ\.?ย\.?|ก\.?ค\.?|ส\.?ค\.?|ก\.?ย\.?|ต\.?ค\.?|พ\.?ย\.?|ธ\.?ค\.?|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)\s+(\d{2,4})/;
   const thaiMatch = fullText.match(thaiDatePattern);
   if (thaiMatch) {
     const day = thaiMatch[1].padStart(2, '0');
-    const month = thaiMonths[thaiMatch[2]] || '01';
+    const rawMonth = thaiMatch[2].replace(/\./g, '');
+    const month = thaiMonths[thaiMatch[2]] || thaiMonths[rawMonth] || '01';
     let year = thaiMatch[3];
     // Convert Thai Buddhist year to CE
     if (year.length === 2) year = (parseInt(year) + 2500).toString();
