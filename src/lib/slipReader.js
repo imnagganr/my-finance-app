@@ -218,7 +218,7 @@ function parseThaiSlipText(text) {
   };
 
   // "21 เม.ย. 69" or "21 เมษายน 2569" — dots optional for OCR tolerance
-  const thaiDatePattern = /(\d{1,2})\s+(ม\.?ค\.?|ก\.?พ\.?|มี\.?ค\.?|เม\.?ย\.?|พ\.?ค\.?|มิ\.?ย\.?|ก\.?ค\.?|ส\.?ค\.?|ก\.?ย\.?|ต\.?ค\.?|พ\.?ย\.?|ธ\.?ค\.?|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)\s+(\d{2,4})/;
+  const thaiDatePattern = /(\d{1,2})\s*(ม\.?ค\.?|ก\.?พ\.?|มี\.?ค\.?|เม\.?ย\.?|พ\.?ค\.?|มิ\.?ย\.?|ก\.?ค\.?|ส\.?ค\.?|ก\.?ย\.?|ต\.?ค\.?|พ\.?ย\.?|ธ\.?ค\.?|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)\s*(\d{2,4})/;
   const thaiMatch = fullText.match(thaiDatePattern);
   if (thaiMatch) {
     const day = thaiMatch[1].padStart(2, '0');
@@ -292,6 +292,11 @@ function parseThaiSlipText(text) {
     if (bank) break;
   }
 
+  // ── Memo / บันทึกช่วยจำ ──
+  let memo = null;
+  const memoMatch = fullText.match(/(?:บันทึกช่วยจํา|บันทึกช่วยจำ|หมายเหตุ|Memo|Note)\s+([^\n]{1,80})/i);
+  if (memoMatch) memo = memoMatch[1].trim();
+
   // ── Receiver name ──
   let receiverName = null;
   const receiverPatterns = [
@@ -330,7 +335,7 @@ function parseThaiSlipText(text) {
     type: 'expense',
     amount,
     date,
-    note: receiverName || bank || 'OCR Slip',
+    note: memo || receiverName || bank || 'OCR Slip',
     sender_account: senderAccount,
     bank_name: bank,
     receiver_name: receiverName,
